@@ -92,6 +92,36 @@ function App() {
     used === "local" ? "badge-local" : used === "tool" ? "badge-tool" : "badge-api";
   const badgeLabel = (used: string) => (used === "local" ? "local" : used === "tool" ? "tool" : "cloud");
 
+  const renderToolCard = (answer: string) => {
+    const timeMatch = answer.match(/Current local time:\s*(.+)/i);
+    if (timeMatch) {
+      return (
+        <div className="tool-card">
+          <div className="tool-card-icon">🕐</div>
+          <div className="tool-card-body">
+            <div className="tool-card-title">Current Time</div>
+            <div className="tool-card-value">{timeMatch[1]}</div>
+          </div>
+        </div>
+      );
+    }
+    const weatherMatch = answer.match(/Live weather\s*—\s*(.+):\s*(\S+)\s*([+-]?\d+°[CF])/i);
+    if (weatherMatch) {
+      const [, city, icon, temp] = weatherMatch;
+      return (
+        <div className="tool-card">
+          <div className="tool-card-icon">{icon}</div>
+          <div className="tool-card-body">
+            <div className="tool-card-title">Weather</div>
+            <div className="tool-card-value">{temp}</div>
+            <div className="tool-card-sub">📍 {city}</div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
   const suggestions = ["Explain AI", "Today's Weather", "Build a React app", "Summarize a PDF"];
 
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -200,7 +230,9 @@ function App() {
                       </button>
                     </div>
                     <div className="markdown-body">
-                      <ReactMarkdown components={markdownComponents}>{m.answer}</ReactMarkdown>
+                      {m.used === "tool" && renderToolCard(m.answer)
+                        ? renderToolCard(m.answer)
+                        : <ReactMarkdown components={markdownComponents}>{m.answer}</ReactMarkdown>}
                     </div>
                     <span className={`badge ${badgeClass(m.used)}`}>{badgeLabel(m.used)}</span>
                   </div>

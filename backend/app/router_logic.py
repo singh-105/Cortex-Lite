@@ -13,7 +13,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs.db")
 
 GREETINGS = {"hi", "hello", "heloo", "hey", "thanks", "thank you", "bye", "ok", "okay", "yo", "sup"}
 HARD_SIGNALS = ["what is", "what are", "why", "how does", "how do", "explain", "compare", "difference between", "teach me"]
-TOOL_SIGNALS = ["weather", "temperature", "climate", "current time", "what time", "time now"]
+TOOL_SIGNALS = ["weather", "temperature", "climate", "time", "timing", "clock"]
 
 def get_recent_history(limit=6):
     conn = sqlite3.connect(DB_PATH)
@@ -27,9 +27,14 @@ def get_recent_history(limit=6):
         history.append({"role": "assistant", "content": a})
     return history
 
+CODE_EXCLUDE = ["complexity", "algorithm", "big o", "runtime"]
+
 def is_tool_query(query: str) -> bool:
     q = query.lower()
+    if any(ex in q for ex in CODE_EXCLUDE):
+        return False
     return any(sig in q for sig in TOOL_SIGNALS)
+
 
 def handle_tool_query(query: str) -> str:
     q = query.lower()
