@@ -7,10 +7,12 @@ from dotenv import load_dotenv
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs.db")
+
 GREETINGS = {"hi", "hello", "heloo", "hey", "thanks", "thank you", "bye", "ok", "okay", "yo", "sup"}
 
 def get_recent_history(limit=6):
-    conn = sqlite3.connect("logs.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)"
     )
@@ -53,7 +55,7 @@ def handle_via_api(query: str) -> str:
     return response.choices[0].message.content
 
 def log_call(query: str, used: str, answer: str):
-    conn = sqlite3.connect("logs.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)"
     )
@@ -62,7 +64,7 @@ def log_call(query: str, used: str, answer: str):
     conn.close()
 
 def get_history():
-    conn = sqlite3.connect("logs.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)"
     )
