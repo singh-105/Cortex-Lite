@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.router_logic import should_escalate, handle_locally
+from app.router_logic import should_escalate, handle_locally, handle_via_api, log_call, get_history
 
 router = APIRouter()
 
@@ -7,5 +7,14 @@ router = APIRouter()
 def route_task(payload: dict):
     query = payload["query"]
     if should_escalate(query):
-        return {"answer": "would call API here", "used": "api"}
-    return {"answer": handle_locally(query), "used": "local"}
+        answer = handle_via_api(query)
+        used = "api"
+    else:
+        answer = handle_locally(query)
+        used = "local"
+    log_call(query, used, answer)
+    return {"answer": answer, "used": used}
+
+@router.get("/history")
+def history():
+    return get_history()
