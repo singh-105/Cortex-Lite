@@ -34,8 +34,11 @@ def classify_tool(query: str) -> str:
 Use meaning, not exact spelling — handle typos and casual phrasing.
 Query: "{query}"
 Answer with one word only."""
-    response = ollama.chat(model="phi3:mini", messages=[{"role": "user", "content": prompt}])
-    return response["message"]["content"].strip().upper()
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.choices[0].message.content.strip().upper()
 
 def is_tool_query(query: str) -> bool:
     return classify_tool(query) in {"WEATHER", "CURRENCY", "TIME"}
