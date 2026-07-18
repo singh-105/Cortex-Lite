@@ -182,7 +182,7 @@ function App() {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/history")
+    fetch(`${import.meta.env.VITE_API_URL}/history`)
       .then((res) => res.json())
       .then((data) => setMessages(data.reverse()));
   }, []);

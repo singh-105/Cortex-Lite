@@ -15,7 +15,7 @@ GREETINGS = {"hi", "hello", "heloo", "hey", "thanks", "thank you", "bye", "ok", 
 PERSONAL_PATTERNS = ["my name is", "i am ", "i live in", "call me", "i'm "]
 HARD_SIGNALS = ["what is", "what are", "why", "how does", "how do", "explain", "compare", "difference between", "teach me"]
 TOOL_SIGNALS = ["weather", "waether", "wather", "temperature", "climate", "current time", "what time", "time now"]
-CURRENCY_SIGNALS = ["dollar", "rupee", "rupp", "usd", "inr", "exchange rate", "currency"]
+CURRENCY_SIGNALS = ["dollar", "rupee", "rupp", "usd", "inr", "exchange rate", "currency"]]
 
 def get_recent_history(limit=6):
     conn = sqlite3.connect(DB_PATH)
@@ -30,14 +30,13 @@ def get_recent_history(limit=6):
     return history
 
 CODE_EXCLUDE = ["complexity", "algorithm", "big o", "runtime"]
-
 def classify_tool(query: str) -> str:
     prompt = f"""Classify this query into exactly one category: WEATHER, CURRENCY, TIME, or NONE.
 Use meaning, not exact spelling — handle typos and casual phrasing.
 Query: "{query}"
 Answer with one word only."""
-    response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": prompt}])
-    return response.choices[0].message.content.strip().upper()
+    response = ollama.chat(model="phi3:mini", messages=[{"role": "user", "content": prompt}])
+    return response["message"]["content"].strip().upper()
 
 def is_tool_query(query: str) -> bool:
     return classify_tool(query) in {"WEATHER", "CURRENCY", "TIME"}
@@ -52,15 +51,7 @@ def handle_tool_query(query: str) -> str:
         if kind == "TIME":
             now = datetime.datetime.now().strftime("%I:%M %p, %d %b %Y")
             return f"Current local time: {now}"
-        fmt = "%C|%t|%f|%h|%w|%p|%P"
-        resp = requests.get(f"https://wttr.in/Mumbai?format={fmt}", timeout=5)
-        parts = resp.text.strip().split("|")
-        if len(parts) == 7:
-            cond, temp, feels, hum, wind, precip, pressure = parts
-            return (
-                f"WEATHER_CARD|Mumbai|{cond.strip()}|{temp.strip()}|{feels.strip()}|"
-                f"{hum.strip()}|{wind.strip()}|{pressure.strip()}"
-            )
+        resp = requests.get("https://wttr.in/Mumbai?format=3", timeout=5)
         return f"Live weather — {resp.text.strip()}"
     except Exception:
         return "Couldn't fetch live data right now, try again in a moment."
@@ -88,11 +79,11 @@ HARD: anything needing real explanation, teaching, technical/domain knowledge, r
 
 Query: "{query}"
 Answer with exactly one word: EASY or HARD."""
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+    response = ollama.chat(
+        model="phi3:mini",
         messages=[{"role": "user", "content": prompt}],
     )
-    verdict = response.choices[0].message.content.strip().upper()
+    verdict = response["message"]["content"].strip().upper()
     return "HARD" in verdict
 
 def handle_locally(query: str) -> str:
@@ -102,7 +93,7 @@ def handle_locally(query: str) -> str:
 
 def handle_via_api(query: str) -> str:
     messages = get_recent_history() + [{"role": "user", "content": query}]
-    response = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=messages)
+    response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=messages)
     return response.choices[0].message.content
 
 def log_call(query: str, used: str, answer: str):
@@ -115,12 +106,6 @@ def log_call(query: str, used: str, answer: str):
 def get_history():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)")
-    rows = conn.execute("SELECT id, query, used, answer FROM logs ORDER BY id DESC LIMIT 20").fetchall()
+    rows = conn.execute("SELECT query, used, answer FROM logs ORDER BY id DESC LIMIT 20").fetchall()
     conn.close()
-    return [{"id": r[0], "query": r[1], "used": r[2], "answer": r[3]} for r in rows]
-
-def delete_entry(entry_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("DELETE FROM logs WHERE id = ?", (entry_id,))
-    conn.commit()
-    conn.close()
+    return [{"query": r[0], "used": r[1], "answer": r[2]} for r in rows]
