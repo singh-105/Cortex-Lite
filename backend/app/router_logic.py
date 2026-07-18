@@ -15,7 +15,7 @@ GREETINGS = {"hi", "hello", "heloo", "hey", "thanks", "thank you", "bye", "ok", 
 PERSONAL_PATTERNS = ["my name is", "i am ", "i live in", "call me", "i'm "]
 HARD_SIGNALS = ["what is", "what are", "why", "how does", "how do", "explain", "compare", "difference between", "teach me"]
 TOOL_SIGNALS = ["weather", "waether", "wather", "temperature", "climate", "current time", "what time", "time now"]
-CURRENCY_SIGNALS = ["dollar", "rupee", "rupp", "usd", "inr", "exchange rate", "currency"]]
+CURRENCY_SIGNALS = ["dollar", "rupee", "rupp", "usd", "inr", "exchange rate", "currency"]
 
 def get_recent_history(limit=6):
     conn = sqlite3.connect(DB_PATH)
