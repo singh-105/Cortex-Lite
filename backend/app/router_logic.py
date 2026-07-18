@@ -102,9 +102,15 @@ def log_call(query: str, used: str, answer: str):
     conn.commit()
     conn.close()
 
+def delete_entry(entry_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM logs WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+
 def get_history():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)")
-    rows = conn.execute("SELECT query, used, answer FROM logs ORDER BY id DESC LIMIT 20").fetchall()
+    rows = conn.execute("SELECT id, query, used, answer FROM logs ORDER BY id DESC LIMIT 20").fetchall()
     conn.close()
-    return [{"query": r[0], "used": r[1], "answer": r[2]} for r in rows]
+    return [{"id": r[0], "query": r[1], "used": r[2], "answer": r[3]} for r in rows]
