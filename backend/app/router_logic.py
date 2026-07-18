@@ -15,7 +15,7 @@ GREETINGS = {"hi", "hello", "heloo", "hey", "thanks", "thank you", "bye", "ok", 
 PERSONAL_PATTERNS = ["my name is", "i am ", "i live in", "call me", "i'm "]
 HARD_SIGNALS = ["what is", "what are", "why", "how does", "how do", "explain", "compare", "difference between", "teach me"]
 TOOL_SIGNALS = ["weather", "waether", "wather", "temperature", "climate", "current time", "what time", "time now"]
-CURRENCY_SIGNALS = ["dollar", "rupee", "rupp", "usd", "inr", "exchange rate", "currency"]]
+CURRENCY_SIGNALS = ["dollar", "rupee", "rupp", "usd", "inr", "exchange rate", "currency"]
 
 def get_recent_history(limit=6):
     conn = sqlite3.connect(DB_PATH)
@@ -31,11 +31,31 @@ def get_recent_history(limit=6):
 
 CODE_EXCLUDE = ["complexity", "algorithm", "big o", "runtime"]
 
+def classify_tool(query: str) -> str:
+    prompt = f"""Classify this query into exactly one category: WEATHER, CURRENCY, TIME, or NONE.
+Use meaning, not exact spelling — handle typos and casual phrasing.
+Query: "{query}"
+Answer with one word only."""
+    response = ollama.chat(model="phi3:mini", messages=[{"role": "user", "content": prompt}])
+    return response["message"]["content"].strip().upper()
+
 def is_tool_query(query: str) -> bool:
-    q = query.lower()
-    if any(ex in q for ex in CODE_EXCLUDE):
-        return False
-    return any(sig in q for sig in TOOL_SIGNALS)
+    return classify_tool(query) in {"WEATHER", "CURRENCY", "TIME"}
+
+def handle_tool_query(query: str) -> str:
+    kind = classify_tool(query)
+    try:
+        if kind == "CURRENCY":
+            resp = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()
+            rate = resp["rates"]["INR"]
+            return f"Live rate — 1 USD = {rate:.2f} INR (updated: {resp['time_last_update_utc']})"
+        if kind == "TIME":
+            now = datetime.datetime.now().strftime("%I:%M %p, %d %b %Y")
+            return f"Current local time: {now}"
+        resp = requests.get("https://wttr.in/Mumbai?format=3", timeout=5)
+        return f"Live weather — {resp.text.strip()}"
+    except Exception:
+        return "Couldn't fetch live data right now, try again in a moment."
 
 
 def handle_tool_query(query: str) -> str:

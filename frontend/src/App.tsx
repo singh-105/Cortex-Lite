@@ -10,7 +10,21 @@ type Message = {
   displayAnswer?: string;
   used: string;
   latency?: number;
+  stage?: string;
 };
+
+const routeSteps = (used: string) => {
+  const active = (name: string) => {
+    if (name === "Memory") return true;
+    if (name === "Router") return true;
+    if (name === "Model") return used === "local" || used === "api";
+    if (name === "Tool") return used === "tool";
+    return false;
+  };
+  return ["Memory", "Router", "Model", "Tool"].map((name) => ({ name, active: active(name) }));
+};
+
+const STAGES = ["Analyzing route...", "Checking memory...", "Calling model...", "Formatting response..."];
 
 const Logo = ({ spin = false }: { spin?: boolean }) => (
   <svg width="26" height="26" viewBox="0 0 28 28" fill="none" className={spin ? "logo-spin" : ""}>
@@ -35,21 +49,17 @@ const SendIcon = () => (
 function App() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
-  const [now, setNow] = useState(new Date());
   const [lastLatency, setLastLatency] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetch("http://localhost:8000/history")
       .then((res) => res.json())
       .then((data) => setMessages(data.reverse()));
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -70,21 +80,58 @@ function App() {
     }, speed);
   };
 
+  const stopResponse = () => {
+    abortRef.current?.abort();
+    setIsStreaming(false);
+  };
+
+  const runStageTicker = (index: number) => {
+    let stageI = 0;
+    const timer = window.setInterval(() => {
+      setMessages((prev) => {
+        const copy = [...prev];
+        if (!copy[index] || copy[index].used !== "pending") {
+          clearInterval(timer);
+          return prev;
+        }
+        stageI = (stageI + 1) % STAGES.length;
+        copy[index] = { ...copy[index], stage: STAGES[stageI] };
+        return copy;
+      });
+    }, 700);
+    return timer;
+  };
+
   const sendQuery = async () => {
     if (!query.trim()) return;
     const q = query;
     setQuery("");
     if (textRef.current) textRef.current.style.height = "auto";
 
-    setMessages((prev) => [...prev, { query: q, answer: "", displayAnswer: "", used: "pending" }]);
+    setMessages((prev) => [...prev, { query: q, answer: "", displayAnswer: "", used: "pending", stage: STAGES[0] }]);
+    setIsStreaming(true);
+    const stageTimer = runStageTicker(messages.length);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     const start = performance.now();
-    const res = await fetch("http://localhost:8000/route-task", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: q }),
-    });
+    let res;
+    try {
+      res = await fetch("http://localhost:8000/route-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q }),
+        signal: controller.signal,
+      });
+    } catch {
+      clearInterval(stageTimer);
+      setIsStreaming(false);
+      return;
+    }
+
     const data = await res.json();
+    clearInterval(stageTimer);
     const latency = Math.round(performance.now() - start);
     setLastLatency(latency);
 
@@ -101,6 +148,7 @@ function App() {
         return prev;
       });
     }, 0);
+    setIsStreaming(false);
   };
 
   const newChat = () => setMessages([]);
@@ -216,11 +264,7 @@ function App() {
               <div className="topbar-sub">Hybrid AI Assistant</div>
             </div>
           </div>
-          <div className="topbar-right">
-            <span className="status-pill"><span className="status-dot" /> Online</span>
-            {lastLatency !== null && <span className="status-pill">{lastLatency} ms</span>}
-            <span className="status-pill">{now.toLocaleTimeString()}</span>
-          </div>
+          <div className="topbar-right"></div>
         </div>
 
         <div className="chat-box" ref={chatRef}>
@@ -246,6 +290,7 @@ function App() {
                 {m.used === "pending" ? (
                   <div className="bubble bubble-bot thinking-row">
                     <Logo spin />
+                    <span className="thinking-stage">{m.stage}</span>
                     <span className="dots"><span></span><span></span><span></span></span>
                   </div>
                 ) : (
@@ -264,6 +309,16 @@ function App() {
                     <span className={`badge ${badgeClass(m.used)}`}>
                       {badgeLabel(m.used)}{m.latency ? ` · ${m.latency}ms` : ""}
                     </span>
+                    <div className="route-timeline">
+                      {routeSteps(m.used).map((step, si) => (
+                        <span key={step.name} className="route-step-wrap">
+                          <span className={`route-step ${step.active ? "route-step-active" : ""}`}>
+                            {step.name}
+                          </span>
+                          {si < 3 && <span className="route-arrow">→</span>}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -281,9 +336,10 @@ function App() {
               placeholder="Ask Cortex Lite anything..."
               rows={1}
             />
-            <button className="send-btn" onClick={sendQuery}><SendIcon /></button>
+            <button className="send-btn" onClick={isStreaming ? stopResponse : sendQuery}>
+              {isStreaming ? "■" : <SendIcon />}
+            </button>
           </div>
-          <div className="hint">Enter to send · Shift+Enter for new line</div>
         </div>
       </div>
     </div>
