@@ -42,7 +42,9 @@ const Logo = ({ spin = false }: { spin?: boolean }) => (
   </svg>
 );
 
-function CodeBlock({ lang, code }: { lang: string; code: string }) {
+import { memo } from "react";
+
+const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [collapsed, setCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
   const lineCount = code.split("\n").length;
@@ -74,7 +76,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
       )}
     </div>
   );
-}
+});
 
 const SendIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -126,15 +128,35 @@ function App() {
     setIsRecording(false);
   };
 
+  const [attachedContent, setAttachedContent] = useState<string | null>(null);
+
+  const readFile = (file: File) => {
+    const textTypes = ["text/", "application/json"];
+    const isText = textTypes.some((t) => file.type.startsWith(t)) || /\.(txt|md|csv|json|log)$/i.test(file.name);
+
+    if (!isText) {
+      alert("Only text-based files (.txt, .md, .csv, .json, .log) are supported right now.");
+      return;
+    }
+
+    setAttachedFile(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = String(e.target?.result || "");
+      setAttachedContent(text.slice(0, 6000));
+    };
+    reader.readAsText(file);
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setAttachedFile(file.name);
+    if (file) readFile(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
-    if (file) setAttachedFile(file.name);
+    if (file) readFile(file);
   };
 
   const togglePin = (id: number) => {
@@ -205,10 +227,14 @@ function App() {
     return timer;
   };
 
-  const sendQuery = async () => {
+ const sendQuery = async () => {
     if (!query.trim()) return;
-    const q = query;
+    const q = attachedContent
+      ? `${query}\n\n[Attached file: ${attachedFile}]\n\`\`\`\n${attachedContent}\n\`\`\``
+      : query;
     setQuery("");
+    setAttachedFile(null);
+    setAttachedContent(null);
     if (textRef.current) textRef.current.style.height = "auto";
 
     setMessages((prev) => [...prev, { query: q, answer: "", displayAnswer: "", used: "pending", stage: STAGES[0] }]);
@@ -394,7 +420,8 @@ function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+     <button className="hamburger" onClick={() => setSidebarOpen((o) => !o)}>☰</button>
+      <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand-row">
           <Logo />
           <div>
@@ -408,8 +435,12 @@ function App() {
         <input
           className="sidebar-search"
           placeholder="Search history..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          defaultValue={searchTerm}
+          onChange={(e) => {
+            const val = e.target.value;
+            clearTimeout((window as any)._searchDebounce);
+            (window as any)._searchDebounce = setTimeout(() => setSearchTerm(val), 250);
+          }}
         />
 
         <div className="history-label">Recent</div>
@@ -447,7 +478,7 @@ function App() {
           <div className="legend-row"><span className="dot dot-local" /> Local — on-device, fast</div>
           <div className="legend-row"><span className="dot dot-cloud" /> Cloud — Groq API</div>
           <div className="legend-row"><span className="dot dot-tool" /> Tool — live weather/time</div>
-          <div className="memory-pill">🧠 Memory Enabled</div>
+         
         </div>
       </aside>
 
@@ -505,6 +536,7 @@ function App() {
                     <span className={`badge ${badgeClass(m.used)}`}>
                       {badgeLabel(m.used)}{m.latency ? ` · ${m.latency}ms` : ""}
                     </span>
+                    
                     <div className="msg-actions">
                       <button onClick={() => regenerate(i)} title="Regenerate">↻</button>
                       <button
@@ -526,20 +558,36 @@ function App() {
           ))}
         </div>
 
-        <div className="input-area">
+        <div className="input-area" onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
+          {attachedFile && (
+            <div className="attached-chip">
+              📎 {attachedFile}
+              <button onClick={() => setAttachedFile(null)}>✕</button>
+            </div>
+          )}
           <div className="input-row">
+            <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Attach file">📎</button>
+            <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileSelect} />
             <textarea
               ref={textRef}
               value={query}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
-              placeholder="Ask Cortex Lite anything..."
+              placeholder={`Ask Cortex Lite anything... e.g. "${suggestionsList[placeholderIdx]}"`}
               rows={1}
             />
+            <button
+              className={`icon-btn ${isRecording ? "recording" : ""}`}
+              onClick={isRecording ? stopVoice : startVoice}
+              title="Voice input"
+            >
+              🎤
+            </button>
             <button className="send-btn" onClick={isStreaming ? stopResponse : sendQuery}>
               {isStreaming ? "■" : <SendIcon />}
             </button>
           </div>
+          <div className="char-count">{query.length} characters</div>
         </div>
       </div>
     </div>
