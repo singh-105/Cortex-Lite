@@ -81,17 +81,17 @@ HARD: anything needing real explanation, teaching, technical/domain knowledge, r
 
 Query: "{query}"
 Answer with exactly one word: EASY or HARD."""
-    response = ollama.chat(
-        model="phi3:mini",
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
     )
-    verdict = response["message"]["content"].strip().upper()
+    verdict = response.choices[0].message.content.strip().upper()
     return "HARD" in verdict
 
 def handle_locally(query: str) -> str:
     messages = get_recent_history() + [{"role": "user", "content": query}]
-    response = ollama.chat(model="qwen2.5:0.5b", messages=messages)
-    return response["message"]["content"]
+    response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=messages)
+    return response.choices[0].message.content
 
 def handle_via_api(query: str) -> str:
     messages = get_recent_history() + [{"role": "user", "content": query}]
