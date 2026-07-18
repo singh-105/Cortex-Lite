@@ -2,7 +2,6 @@ import os
 import sqlite3
 import datetime
 import requests
-import ollama
 from groq import Groq
 from dotenv import load_dotenv
 
