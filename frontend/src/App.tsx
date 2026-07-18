@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -13,17 +13,6 @@ type Message = {
   used: string;
   latency?: number;
   stage?: string;
-};
-
-const routeSteps = (used: string) => {
-  const active = (name: string) => {
-    if (name === "Memory") return true;
-    if (name === "Router") return true;
-    if (name === "Model") return used === "local" || used === "api";
-    if (name === "Tool") return used === "tool";
-    return false;
-  };
-  return ["Memory", "Router", "Model", "Tool"].map((name) => ({ name, active: active(name) }));
 };
 
 const STAGES = ["Analyzing route...", "Checking memory...", "Calling model...", "Formatting response..."];
@@ -42,7 +31,11 @@ const Logo = ({ spin = false }: { spin?: boolean }) => (
   </svg>
 );
 
-import { memo } from "react";
+const SendIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+    <path d="M3 12l18-8-8 18-2-8-8-2z" fill="currentColor" />
+  </svg>
+);
 
 const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -65,12 +58,7 @@ const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string; code: 
         </div>
       </div>
       {!collapsed && (
-        <SyntaxHighlighter
-          style={oneDark}
-          language={lang}
-          PreTag="div"
-          showLineNumbers={lineCount > 1}
-        >
+        <SyntaxHighlighter style={oneDark} language={lang} PreTag="div" showLineNumbers={lineCount > 1}>
           {code}
         </SyntaxHighlighter>
       )}
@@ -78,108 +66,28 @@ const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string; code: 
   );
 });
 
-const SendIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-    <path d="M3 12l18-8-8 18-2-8-8-2z" fill="currentColor" />
-  </svg>
-);
-
 function App() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
-  const [lastLatency, setLastLatency] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [pinnedIds, setPinnedIds] = useState<Set<number>>(new Set());
   const [activeId, setActiveId] = useState<number | null>(null);
   const [attachedFile, setAttachedFile] = useState<string | null>(null);
+  const [attachedContent, setAttachedContent] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const [reactions, setReactions] = useState<Record<number, "like" | "dislike" | null>>({});
 
-  useEffect(() => {
-    const t = setInterval(() => setPlaceholderIdx((i) => (i + 1) % suggestionsList.length), 3000);
-    return () => clearInterval(t);
-  }, []);
-
-  const suggestionsList = ["Explain AI", "Today's weather", "Build a React app", "Summarize a PDF"];
-
-  const startVoice = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Voice input not supported in this browser.");
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.onresult = (e: any) => {
-      setQuery((prev) => (prev ? prev + " " : "") + e.results[0][0].transcript);
-    };
-    recognition.onend = () => setIsRecording(false);
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsRecording(true);
-  };
-
-  const stopVoice = () => {
-    recognitionRef.current?.stop();
-    setIsRecording(false);
-  };
-
-  const [attachedContent, setAttachedContent] = useState<string | null>(null);
-
-  const readFile = (file: File) => {
-    const textTypes = ["text/", "application/json"];
-    const isText = textTypes.some((t) => file.type.startsWith(t)) || /\.(txt|md|csv|json|log)$/i.test(file.name);
-
-    if (!isText) {
-      alert("Only text-based files (.txt, .md, .csv, .json, .log) are supported right now.");
-      return;
-    }
-
-    setAttachedFile(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = String(e.target?.result || "");
-      setAttachedContent(text.slice(0, 6000));
-    };
-    reader.readAsText(file);
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) readFile(file);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (file) readFile(file);
-  };
-
-  const togglePin = (id: number) => {
-    setPinnedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const deleteEntry = async (id: number) => {
-    await fetch(`http://localhost:8000/history/${id}`, { method: "DELETE" });
-    setMessages((prev) => prev.filter((m) => m.id !== id));
-  };
-
-  const scrollToMessage = (id: number) => {
-    setActiveId(id);
-    document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-  const [isStreaming, setIsStreaming] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  const suggestionsList = ["Explain AI", "Today's weather", "Build a React app", "Summarize a PDF"];
 
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL}/history`)
@@ -190,6 +98,11 @@ function App() {
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    const t = setInterval(() => setPlaceholderIdx((i) => (i + 1) % suggestionsList.length), 3000);
+    return () => clearInterval(t);
+  }, []);
 
   const streamAnswer = (index: number, fullText: string, speed = 12) => {
     let i = 0;
@@ -203,11 +116,6 @@ function App() {
       });
       if (i >= fullText.length) clearInterval(timer);
     }, speed);
-  };
-
-  const stopResponse = () => {
-    abortRef.current?.abort();
-    setIsStreaming(false);
   };
 
   const runStageTicker = (index: number) => {
@@ -227,7 +135,12 @@ function App() {
     return timer;
   };
 
- const sendQuery = async () => {
+  const stopResponse = () => {
+    abortRef.current?.abort();
+    setIsStreaming(false);
+  };
+
+  const sendQuery = async () => {
     if (!query.trim()) return;
     const q = attachedContent
       ? `${query}\n\n[Attached file: ${attachedFile}]\n\`\`\`\n${attachedContent}\n\`\`\``
@@ -244,10 +157,9 @@ function App() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const start = performance.now();
     let res;
     try {
-      res = await fetch("http://localhost:8000/route-task", {
+      res = await fetch(`${import.meta.env.VITE_API_URL}/route-task`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q }),
@@ -261,13 +173,11 @@ function App() {
 
     const data = await res.json();
     clearInterval(stageTimer);
-    const latency = Math.round(performance.now() - start);
-    setLastLatency(latency);
 
     setMessages((prev) => {
       const updated = [...prev];
       const idx = updated.length - 1;
-      updated[idx] = { query: q, answer: data.answer, displayAnswer: "", used: data.used, latency };
+      updated[idx] = { query: q, answer: data.answer, displayAnswer: "", used: data.used };
       return updated;
     });
 
@@ -280,7 +190,54 @@ function App() {
     setIsStreaming(false);
   };
 
+  const regenerate = async (idx: number) => {
+    const q = messages[idx].query;
+    setMessages((prev) => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], used: "pending", answer: "", displayAnswer: "", stage: STAGES[0] };
+      return copy;
+    });
+
+    const stageTimer = runStageTicker(idx);
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/route-task`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
+    const data = await res.json();
+    clearInterval(stageTimer);
+
+    setMessages((prev) => {
+      const copy = [...prev];
+      copy[idx] = { query: q, answer: data.answer, displayAnswer: "", used: data.used };
+      return copy;
+    });
+    setTimeout(() => streamAnswer(idx, data.answer), 0);
+  };
+
   const newChat = () => setMessages([]);
+
+  const toggleReaction = (idx: number, kind: "like" | "dislike") => {
+    setReactions((prev) => ({ ...prev, [idx]: prev[idx] === kind ? null : kind }));
+  };
+
+  const togglePin = (id: number) => {
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const deleteEntry = async (id: number) => {
+    await fetch(`${import.meta.env.VITE_API_URL}/history/${id}`, { method: "DELETE" });
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const scrollToMessage = (id: number) => {
+    setActiveId(id);
+    document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -352,48 +309,64 @@ function App() {
     return null;
   };
 
-  const suggestions = ["Explain AI", "Today's Weather", "Build a React app", "Summarize a PDF"];
-
   const copyText = (text: string, idx: number) => {
     navigator.clipboard.writeText(text);
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 1200);
   };
 
-  const [reactions, setReactions] = useState<Record<number, "like" | "dislike" | null>>({});
-
-  const toggleReaction = (idx: number, kind: "like" | "dislike") => {
-    setReactions((prev) => ({ ...prev, [idx]: prev[idx] === kind ? null : kind }));
+  const startVoice = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice input not supported in this browser.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.onresult = (e: any) => {
+      setQuery((prev) => (prev ? prev + " " : "") + e.results[0][0].transcript);
+    };
+    recognition.onend = () => setIsRecording(false);
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsRecording(true);
   };
 
-  const regenerate = async (idx: number) => {
-    const q = messages[idx].query;
-    setMessages((prev) => {
-      const copy = [...prev];
-      copy[idx] = { ...copy[idx], used: "pending", answer: "", displayAnswer: "", stage: STAGES[0] };
-      return copy;
-    });
-
-    const stageTimer = runStageTicker(idx);
-    const start = performance.now();
-    const res = await fetch("http://localhost:8000/route-task", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: q }),
-    });
-    const data = await res.json();
-    clearInterval(stageTimer);
-    const latency = Math.round(performance.now() - start);
-
-    setMessages((prev) => {
-      const copy = [...prev];
-      copy[idx] = { query: q, answer: data.answer, displayAnswer: "", used: data.used, latency };
-      return copy;
-    });
-    setTimeout(() => streamAnswer(idx, data.answer), 0);
+  const stopVoice = () => {
+    recognitionRef.current?.stop();
+    setIsRecording(false);
   };
 
- const markdownComponents = {
+  const readFile = (file: File) => {
+    const textTypes = ["text/", "application/json"];
+    const isText = textTypes.some((t) => file.type.startsWith(t)) || /\.(txt|md|csv|json|log)$/i.test(file.name);
+
+    if (!isText) {
+      alert("Only text-based files (.txt, .md, .csv, .json, .log) are supported right now.");
+      return;
+    }
+
+    setAttachedFile(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = String(e.target?.result || "");
+      setAttachedContent(text.slice(0, 6000));
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) readFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) readFile(file);
+  };
+
+  const markdownComponents = {
     code({ inline, className, children, ...props }: any) {
       const match = /language-(\w+)/.exec(className || "");
       if (inline) return <code className="inline-code" {...props}>{children}</code>;
@@ -420,7 +393,7 @@ function App() {
 
   return (
     <div className="app">
-     <button className="hamburger" onClick={() => setSidebarOpen((o) => !o)}>☰</button>
+      <button className="hamburger" onClick={() => setSidebarOpen((o) => !o)}>☰</button>
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand-row">
           <Logo />
@@ -474,11 +447,11 @@ function App() {
             ))}
           {messages.length === 0 && <div className="history-empty">No conversations yet</div>}
         </div>
+
         <div className="sidebar-footer">
           <div className="legend-row"><span className="dot dot-local" /> Local — on-device, fast</div>
           <div className="legend-row"><span className="dot dot-cloud" /> Cloud — Groq API</div>
           <div className="legend-row"><span className="dot dot-tool" /> Tool — live weather/time</div>
-         
         </div>
       </aside>
 
@@ -501,7 +474,7 @@ function App() {
               <div className="empty-title">Cortex Lite</div>
               <div className="empty-sub">Ask anything. Local, cloud, and live tools work together.</div>
               <div className="suggestion-grid">
-                {suggestions.map((s) => (
+                {suggestionsList.map((s) => (
                   <button key={s} className="suggestion-card" onClick={() => setQuery(s)}>{s}</button>
                 ))}
               </div>
@@ -536,7 +509,6 @@ function App() {
                     <span className={`badge ${badgeClass(m.used)}`}>
                       {badgeLabel(m.used)}{m.latency ? ` · ${m.latency}ms` : ""}
                     </span>
-                    
                     <div className="msg-actions">
                       <button onClick={() => regenerate(i)} title="Regenerate">↻</button>
                       <button
@@ -550,7 +522,6 @@ function App() {
                         title="Dislike"
                       >👎</button>
                     </div>
-                    
                   </div>
                 )}
               </div>
