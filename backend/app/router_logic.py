@@ -12,8 +12,10 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs.db")
 
 GREETINGS = {"hi", "hello", "heloo", "hey", "thanks", "thank you", "bye", "ok", "okay", "yo", "sup"}
+PERSONAL_PATTERNS = ["my name is", "i am ", "i live in", "call me", "i'm "]
 HARD_SIGNALS = ["what is", "what are", "why", "how does", "how do", "explain", "compare", "difference between", "teach me"]
-TOOL_SIGNALS = ["weather", "temperature", "climate", "time", "timing", "clock"]
+TOOL_SIGNALS = ["weather", "waether", "wather", "temperature", "climate", "current time", "what time", "time now"]
+CURRENCY_SIGNALS = ["dollar", "rupee", "rupp", "usd", "inr", "exchange rate", "currency"]]
 
 def get_recent_history(limit=6):
     conn = sqlite3.connect(DB_PATH)
@@ -49,16 +51,19 @@ def handle_tool_query(query: str) -> str:
 
 def should_escalate(query: str) -> bool:
     simple = query.strip().lower()
-    if simple in GREETINGS or len(simple.split()) <= 3:
+    if simple in GREETINGS or len(simple.split()) <= 2:
         return False
-    if any(sig in simple for sig in HARD_SIGNALS):
-        return True
-    prompt = f"""Classify this query as EASY or HARD.
-EASY = greetings, casual chat, simple personal questions, short facts.
-HARD = explanation, teaching, technical concepts, reasoning, coding, comparisons.
-One word only: EASY or HARD.
-Query: {query}"""
-    response = ollama.chat(model="qwen2.5:0.5b", messages=[{"role": "user", "content": prompt}])
+    prompt = f"""You are a routing classifier. Decide if this query needs a powerful cloud model (HARD) or can be handled by a small local model (EASY), regardless of typos or phrasing.
+
+EASY: greetings, small talk, sharing personal info (name, location, preferences), simple direct facts, short casual replies.
+HARD: anything needing real explanation, teaching, technical/domain knowledge, reasoning, coding, comparisons, multi-step answers — even if the query is short, misspelled, or casually worded.
+
+Query: "{query}"
+Answer with exactly one word: EASY or HARD."""
+    response = ollama.chat(
+        model="phi3:mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
     verdict = response["message"]["content"].strip().upper()
     return "HARD" in verdict
 
