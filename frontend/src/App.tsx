@@ -7,22 +7,8 @@ import "./App.css";
 type Message = {
   query: string;
   answer: string;
-
   displayAnswer?: string;
-
   used: string;
-
-  loading?: boolean;
-
-  routeStage?: string;
-
-  routeTimeline?: {
-    memory: boolean;
-    router: boolean;
-    model: boolean;
-    tool: boolean;
-  };
-
   latency?: number;
 };
 
@@ -49,9 +35,9 @@ const SendIcon = () => (
 function App() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
-  const streamingTimers = useRef<Record<number, number>>({});
   const [now, setNow] = useState(new Date());
   const [lastLatency, setLastLatency] = useState<number | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -70,36 +56,19 @@ function App() {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-const streamAnswer = (
-  index: number,
-  fullText: string,
-  speed = 12
-) => {
-  let i = 0;
-
-  const timer = window.setInterval(() => {
-    i++;
-
-    setMessages((prev) => {
-      const copy = [...prev];
-
-      if (!copy[index]) return prev;
-
-      copy[index] = {
-        ...copy[index],
-        displayAnswer: fullText.slice(0, i),
-      };
-
-      return copy;
-    });
-
-    if (i >= fullText.length) {
-      clearInterval(timer);
-    }
-  }, speed);
-
-  streamingTimers.current[index] = timer;
-};
+  const streamAnswer = (index: number, fullText: string, speed = 12) => {
+    let i = 0;
+    const timer = window.setInterval(() => {
+      i++;
+      setMessages((prev) => {
+        const copy = [...prev];
+        if (!copy[index]) return prev;
+        copy[index] = { ...copy[index], displayAnswer: fullText.slice(0, i) };
+        return copy;
+      });
+      if (i >= fullText.length) clearInterval(timer);
+    }, speed);
+  };
 
   const sendQuery = async () => {
     if (!query.trim()) return;
@@ -107,42 +76,32 @@ const streamAnswer = (
     setQuery("");
     if (textRef.current) textRef.current.style.height = "auto";
 
-    setMessages((prev) => [
-  ...prev,
-  {
-    query: q,
-    answer: "",
-    displayAnswer: "",
-    used: "pending",
-    loading: true,
-    routeStage: "Analyzing Route...",
-  },
-]);
+    setMessages((prev) => [...prev, { query: q, answer: "", displayAnswer: "", used: "pending" }]);
+
+    const start = performance.now();
+    const res = await fetch("http://localhost:8000/route-task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
     const data = await res.json();
-    const latency = Math.floor(Math.random() * 60) + 20;
-    setLastLatency(Math.round(performance.now() - start));
+    const latency = Math.round(performance.now() - start);
+    setLastLatency(latency);
 
     setMessages((prev) => {
       const updated = [...prev];
-      updated[updated.length - 1] = {
-  query: q,
-  answer: data.answer,
-  displayAnswer: "",
-  used: data.used,
-  loading: false,
-  latency,
-  routeStage: "Completed",
-  routeTimeline: {
-    memory: true,
-    router: true,
-    model: data.used !== "tool",
-    tool: data.used === "tool",
-  },
-};
-streamAnswer(
-  updated.length - 1,
-  data.answer
-);
+      const idx = updated.length - 1;
+      updated[idx] = { query: q, answer: data.answer, displayAnswer: "", used: data.used, latency };
+      return updated;
+    });
+
+    setTimeout(() => {
+      setMessages((prev) => {
+        streamAnswer(prev.length - 1, data.answer);
+        return prev;
+      });
+    }, 0);
+  };
 
   const newChat = () => setMessages([]);
 
@@ -176,7 +135,7 @@ streamAnswer(
         </div>
       );
     }
-    const weatherMatch = answer.match(/Live weather\s*—\s*(.+):\s*(\S+)\s*([+-]?\d+°[CF])/i);
+    const weatherMatch = answer.match(/Live weather\s*—\s*(.+?):\s*(\S+)\s*([+-]?\d+°[CF])/i);
     if (weatherMatch) {
       const [, city, icon, temp] = weatherMatch;
       return (
@@ -195,7 +154,6 @@ streamAnswer(
 
   const suggestions = ["Explain AI", "Today's Weather", "Build a React app", "Summarize a PDF"];
 
-  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const copyText = (text: string, idx: number) => {
     navigator.clipboard.writeText(text);
     setCopiedIdx(idx);
@@ -208,9 +166,7 @@ streamAnswer(
       if (inline) return <code className="inline-code" {...props}>{children}</code>;
       return (
         <div className="code-block">
-          <div className="code-block-header">
-            <span>{match?.[1] || "text"}</span>
-          </div>
+          <div className="code-block-header"><span>{match?.[1] || "text"}</span></div>
           <SyntaxHighlighter style={oneDark} language={match?.[1] || "text"} PreTag="div">
             {String(children).replace(/\n$/, "")}
           </SyntaxHighlighter>
@@ -303,9 +259,11 @@ streamAnswer(
                     <div className="markdown-body">
                       {m.used === "tool" && renderToolCard(m.answer)
                         ? renderToolCard(m.answer)
-                        : <ReactMarkdown components={markdownComponents}>{m.answer}</ReactMarkdown>}
+                        : <ReactMarkdown components={markdownComponents}>{m.displayAnswer ?? m.answer}</ReactMarkdown>}
                     </div>
-                    <span className={`badge ${badgeClass(m.used)}`}>{badgeLabel(m.used)}</span>
+                    <span className={`badge ${badgeClass(m.used)}`}>
+                      {badgeLabel(m.used)}{m.latency ? ` · ${m.latency}ms` : ""}
+                    </span>
                   </div>
                 )}
               </div>
