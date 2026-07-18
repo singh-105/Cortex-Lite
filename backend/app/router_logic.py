@@ -52,7 +52,15 @@ def handle_tool_query(query: str) -> str:
         if kind == "TIME":
             now = datetime.datetime.now().strftime("%I:%M %p, %d %b %Y")
             return f"Current local time: {now}"
-        resp = requests.get("https://wttr.in/Mumbai?format=3", timeout=5)
+        fmt = "%C|%t|%f|%h|%w|%p|%P"
+        resp = requests.get(f"https://wttr.in/Mumbai?format={fmt}", timeout=5)
+        parts = resp.text.strip().split("|")
+        if len(parts) == 7:
+            cond, temp, feels, hum, wind, precip, pressure = parts
+            return (
+                f"WEATHER_CARD|Mumbai|{cond.strip()}|{temp.strip()}|{feels.strip()}|"
+                f"{hum.strip()}|{wind.strip()}|{pressure.strip()}"
+            )
         return f"Live weather — {resp.text.strip()}"
     except Exception:
         return "Couldn't fetch live data right now, try again in a moment."
@@ -107,6 +115,12 @@ def log_call(query: str, used: str, answer: str):
 def get_history():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)")
-    rows = conn.execute("SELECT query, used, answer FROM logs ORDER BY id DESC LIMIT 20").fetchall()
+    rows = conn.execute("SELECT id, query, used, answer FROM logs ORDER BY id DESC LIMIT 20").fetchall()
     conn.close()
-    return [{"query": r[0], "used": r[1], "answer": r[2]} for r in rows]
+    return [{"id": r[0], "query": r[1], "used": r[2], "answer": r[3]} for r in rows]
+
+def delete_entry(entry_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM logs WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()

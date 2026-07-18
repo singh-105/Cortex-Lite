@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./App.css";
 
 type Message = {
+  id?: number;
   query: string;
   answer: string;
   displayAnswer?: string;
@@ -40,6 +42,40 @@ const Logo = ({ spin = false }: { spin?: boolean }) => (
   </svg>
 );
 
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const lineCount = code.split("\n").length;
+
+  const doCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+
+  return (
+    <div className="code-block">
+      <div className="code-block-header">
+        <span>{lang}</span>
+        <div className="code-block-actions">
+          <button onClick={() => setCollapsed((c) => !c)}>{collapsed ? "Expand" : "Collapse"}</button>
+          <button onClick={doCopy}>{copied ? "Copied" : "Copy"}</button>
+        </div>
+      </div>
+      {!collapsed && (
+        <SyntaxHighlighter
+          style={oneDark}
+          language={lang}
+          PreTag="div"
+          showLineNumbers={lineCount > 1}
+        >
+          {code}
+        </SyntaxHighlighter>
+      )}
+    </div>
+  );
+}
+
 const SendIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
     <path d="M3 12l18-8-8 18-2-8-8-2z" fill="currentColor" />
@@ -51,6 +87,73 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [lastLatency, setLastLatency] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [pinnedIds, setPinnedIds] = useState<Set<number>>(new Set());
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [attachedFile, setAttachedFile] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    const t = setInterval(() => setPlaceholderIdx((i) => (i + 1) % suggestionsList.length), 3000);
+    return () => clearInterval(t);
+  }, []);
+
+  const suggestionsList = ["Explain AI", "Today's weather", "Build a React app", "Summarize a PDF"];
+
+  const startVoice = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice input not supported in this browser.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.onresult = (e: any) => {
+      setQuery((prev) => (prev ? prev + " " : "") + e.results[0][0].transcript);
+    };
+    recognition.onend = () => setIsRecording(false);
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsRecording(true);
+  };
+
+  const stopVoice = () => {
+    recognitionRef.current?.stop();
+    setIsRecording(false);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setAttachedFile(file.name);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) setAttachedFile(file.name);
+  };
+
+  const togglePin = (id: number) => {
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const deleteEntry = async (id: number) => {
+    await fetch(`http://localhost:8000/history/${id}`, { method: "DELETE" });
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const scrollToMessage = (id: number) => {
+    setActiveId(id);
+    document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
   const [isStreaming, setIsStreaming] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -183,20 +286,43 @@ function App() {
         </div>
       );
     }
-    const weatherMatch = answer.match(/Live weather\s*—\s*(.+?):\s*(\S+)\s*([+-]?\d+°[CF])/i);
-    if (weatherMatch) {
-      const [, city, icon, temp] = weatherMatch;
+
+    if (answer.startsWith("WEATHER_CARD|")) {
+      const [, city, cond, temp, feels, hum, wind, pressure] = answer.split("|");
       return (
-        <div className="tool-card">
-          <div className="tool-card-icon">{icon}</div>
-          <div className="tool-card-body">
-            <div className="tool-card-title">Weather</div>
-            <div className="tool-card-value">{temp}</div>
-            <div className="tool-card-sub">📍 {city}</div>
+        <div className="tool-card weather-card">
+          <div className="weather-main">
+            <div className="tool-card-icon">🌦️</div>
+            <div>
+              <div className="tool-card-value">{temp}</div>
+              <div className="tool-card-sub">{cond} · 📍 {city}</div>
+            </div>
+          </div>
+          <div className="weather-grid">
+            <div><span className="w-label">Feels like</span><span className="w-value">{feels}</span></div>
+            <div><span className="w-label">Humidity</span><span className="w-value">{hum}</span></div>
+            <div><span className="w-label">Wind</span><span className="w-value">{wind}</span></div>
+            <div><span className="w-label">Pressure</span><span className="w-value">{pressure}</span></div>
           </div>
         </div>
       );
     }
+
+    const currencyMatch = answer.match(/Live rate\s*—\s*1 USD = ([\d.]+) INR \(updated:\s*(.+)\)/i);
+    if (currencyMatch) {
+      const [, rate, updated] = currencyMatch;
+      return (
+        <div className="tool-card">
+          <div className="tool-card-icon">💱</div>
+          <div className="tool-card-body">
+            <div className="tool-card-title">USD → INR</div>
+            <div className="tool-card-value">₹{rate}</div>
+            <div className="tool-card-sub">Updated {updated}</div>
+          </div>
+        </div>
+      );
+    }
+
     return null;
   };
 
@@ -208,18 +334,61 @@ function App() {
     setTimeout(() => setCopiedIdx(null), 1200);
   };
 
-  const markdownComponents = {
+  const [reactions, setReactions] = useState<Record<number, "like" | "dislike" | null>>({});
+
+  const toggleReaction = (idx: number, kind: "like" | "dislike") => {
+    setReactions((prev) => ({ ...prev, [idx]: prev[idx] === kind ? null : kind }));
+  };
+
+  const regenerate = async (idx: number) => {
+    const q = messages[idx].query;
+    setMessages((prev) => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], used: "pending", answer: "", displayAnswer: "", stage: STAGES[0] };
+      return copy;
+    });
+
+    const stageTimer = runStageTicker(idx);
+    const start = performance.now();
+    const res = await fetch("http://localhost:8000/route-task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
+    const data = await res.json();
+    clearInterval(stageTimer);
+    const latency = Math.round(performance.now() - start);
+
+    setMessages((prev) => {
+      const copy = [...prev];
+      copy[idx] = { query: q, answer: data.answer, displayAnswer: "", used: data.used, latency };
+      return copy;
+    });
+    setTimeout(() => streamAnswer(idx, data.answer), 0);
+  };
+
+ const markdownComponents = {
     code({ inline, className, children, ...props }: any) {
       const match = /language-(\w+)/.exec(className || "");
       if (inline) return <code className="inline-code" {...props}>{children}</code>;
-      return (
-        <div className="code-block">
-          <div className="code-block-header"><span>{match?.[1] || "text"}</span></div>
-          <SyntaxHighlighter style={oneDark} language={match?.[1] || "text"} PreTag="div">
-            {String(children).replace(/\n$/, "")}
-          </SyntaxHighlighter>
-        </div>
-      );
+      const codeText = String(children).replace(/\n$/, "");
+      return <CodeBlock lang={match?.[1] || "text"} code={codeText} />;
+    },
+    img({ src, alt }: any) {
+      return <img src={src} alt={alt} className="md-image" loading="lazy" />;
+    },
+    blockquote({ children }: any) {
+      const text = JSON.stringify(children);
+      const isWarn = /⚠️|warning/i.test(text);
+      const isNote = /ℹ️|note/i.test(text);
+      const cls = isWarn ? "alert alert-warn" : isNote ? "alert alert-note" : "";
+      return cls ? <div className={cls}>{children}</div> : <blockquote>{children}</blockquote>;
+    },
+    li({ children, className }: any) {
+      if (className === "task-list-item") {
+        return <li className="task-item">{children}</li>;
+      }
+      return <li>{children}</li>;
     },
   };
 
@@ -236,17 +405,44 @@ function App() {
 
         <button className="new-chat-btn" onClick={newChat}>+ New Chat</button>
 
+        <input
+          className="sidebar-search"
+          placeholder="Search history..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+
         <div className="history-label">Recent</div>
         <div className="history-list">
-          {messages.slice(-15).reverse().map((m, i) => (
-            <div key={i} className="history-item">
-              <span className="history-dot" />
-              {m.query}
-            </div>
-          ))}
+          {[...messages]
+            .filter((m) => m.query.toLowerCase().includes(searchTerm.toLowerCase()))
+            .slice(-30)
+            .reverse()
+            .sort((a, b) => {
+              const aPinned = a.id !== undefined && pinnedIds.has(a.id) ? 1 : 0;
+              const bPinned = b.id !== undefined && pinnedIds.has(b.id) ? 1 : 0;
+              return bPinned - aPinned;
+            })
+            .map((m) => (
+              <div
+                key={m.id ?? m.query}
+                className={`history-item ${activeId === m.id ? "history-item-active" : ""}`}
+                onClick={() => m.id !== undefined && scrollToMessage(m.id)}
+              >
+                <span className="history-dot" />
+                <span className="history-text">{m.query}</span>
+                {m.id !== undefined && (
+                  <span className="history-actions">
+                    <button onClick={(e) => { e.stopPropagation(); togglePin(m.id!); }}>
+                      {pinnedIds.has(m.id) ? "📌" : "📍"}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); deleteEntry(m.id!); }}>🗑</button>
+                  </span>
+                )}
+              </div>
+            ))}
           {messages.length === 0 && <div className="history-empty">No conversations yet</div>}
         </div>
-
         <div className="sidebar-footer">
           <div className="legend-row"><span className="dot dot-local" /> Local — on-device, fast</div>
           <div className="legend-row"><span className="dot dot-cloud" /> Cloud — Groq API</div>
@@ -282,7 +478,7 @@ function App() {
           )}
 
           {messages.map((m, i) => (
-            <div key={i} className="msg-block">
+            <div key={i} id={`msg-${m.id ?? i}`} className="msg-block">
               <div className="row-user">
                 <div className="bubble bubble-user">{m.query}</div>
               </div>
@@ -304,21 +500,25 @@ function App() {
                     <div className="markdown-body">
                       {m.used === "tool" && renderToolCard(m.answer)
                         ? renderToolCard(m.answer)
-                        : <ReactMarkdown components={markdownComponents}>{m.displayAnswer ?? m.answer}</ReactMarkdown>}
+                        : <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{m.displayAnswer ?? m.answer}</ReactMarkdown>}
                     </div>
                     <span className={`badge ${badgeClass(m.used)}`}>
                       {badgeLabel(m.used)}{m.latency ? ` · ${m.latency}ms` : ""}
                     </span>
-                    <div className="route-timeline">
-                      {routeSteps(m.used).map((step, si) => (
-                        <span key={step.name} className="route-step-wrap">
-                          <span className={`route-step ${step.active ? "route-step-active" : ""}`}>
-                            {step.name}
-                          </span>
-                          {si < 3 && <span className="route-arrow">→</span>}
-                        </span>
-                      ))}
+                    <div className="msg-actions">
+                      <button onClick={() => regenerate(i)} title="Regenerate">↻</button>
+                      <button
+                        className={reactions[i] === "like" ? "action-active" : ""}
+                        onClick={() => toggleReaction(i, "like")}
+                        title="Like"
+                      >👍</button>
+                      <button
+                        className={reactions[i] === "dislike" ? "action-active" : ""}
+                        onClick={() => toggleReaction(i, "dislike")}
+                        title="Dislike"
+                      >👎</button>
                     </div>
+                    
                   </div>
                 )}
               </div>

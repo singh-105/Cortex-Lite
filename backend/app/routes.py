@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from app.router_logic import (
     should_escalate, handle_locally, handle_via_api,
-    is_tool_query, handle_tool_query, log_call, get_history
+    is_tool_query, handle_tool_query, log_call, get_history, delete_entry
 )
 
 router = APIRouter()
@@ -26,3 +26,8 @@ def route_task(payload: dict):
 @router.get("/history")
 def history():
     return get_history()
+
+@router.delete("/history/{entry_id}")
+def delete_history(entry_id: int):
+    delete_entry(entry_id)
+    return {"deleted": entry_id}
