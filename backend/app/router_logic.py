@@ -62,7 +62,18 @@ Answer with one word only."""
     response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": prompt}])
     return response.choices[0].message.content.strip().upper()
 
+import re
+
+def looks_like_math(query: str) -> bool:
+    q = query.lower()
+    has_numbers = bool(re.search(r"\d", q))
+    has_math_words = any(w in q for w in ["calculate", "what is", "+", "-", "*", "/", "times", "plus", "minus", "divided"])
+    has_operator = bool(re.search(r"[\d\s]*[\+\-\*/][\d\s]", q))
+    return has_numbers and (has_operator or "calculate" in q)
+
 def is_tool_query(query: str) -> bool:
+    if looks_like_math(query):
+        return True
     return classify_tool(query) in {"WEATHER", "CURRENCY", "TIME", "CALCULATOR", "CRYPTO"}
 
 CRYPTO_IDS = {
@@ -97,7 +108,7 @@ def extract_coin(query: str) -> str:
     return "bitcoin"
 
 def handle_tool_query(query: str) -> str:
-    kind = classify_tool(query)
+    kind = "CALCULATOR" if looks_like_math(query) else classify_tool(query)
     try:
         if kind == "CALCULATOR":
             expr = extract_expression(query)
