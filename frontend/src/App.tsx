@@ -151,7 +151,12 @@ function App() {
   };
 
   useEffect(() => {
-    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
+    const el = chatRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (nearBottom) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
   }, [messages]);
 
   useEffect(() => {
@@ -159,8 +164,12 @@ function App() {
     return () => clearInterval(t);
   }, []);
 
+  const streamTimerRef = useRef<number | null>(null);
+  const currentIndexRef = useRef<number | null>(null);
+
   const streamAnswer = (index: number, fullText: string, speed = 12) => {
     let i = 0;
+    currentIndexRef.current = index;
     const timer = window.setInterval(() => {
       i++;
       setMessages((prev) => {
@@ -169,8 +178,13 @@ function App() {
         copy[index] = { ...copy[index], displayAnswer: fullText.slice(0, i) };
         return copy;
       });
-      if (i >= fullText.length) clearInterval(timer);
+      if (i >= fullText.length) {
+        clearInterval(timer);
+        streamTimerRef.current = null;
+        setIsStreaming(false);
+      }
     }, speed);
+    streamTimerRef.current = timer;
   };
 
   const runStageTicker = (index: number) => {
@@ -192,11 +206,23 @@ function App() {
 
   const stopResponse = () => {
     abortRef.current?.abort();
+    if (streamTimerRef.current) {
+      clearInterval(streamTimerRef.current);
+      streamTimerRef.current = null;
+      const idx = currentIndexRef.current;
+      if (idx !== null) {
+        setMessages((prev) => {
+          const copy = [...prev];
+          if (copy[idx]) copy[idx] = { ...copy[idx], displayAnswer: copy[idx].answer };
+          return copy;
+        });
+      }
+    }
     setIsStreaming(false);
   };
-
-  const sendQuery = async () => {
+   const sendQuery = async () => {
     if (!query.trim()) return;
+    if (isStreaming) return;
     if (fileLoading) {
       alert("Still reading the attached file — wait a moment and try again.");
       return;
@@ -259,6 +285,7 @@ function App() {
   };
 
   const regenerate = async (idx: number) => {
+    if (isStreaming) return;
     const q = messages[idx].query;
     setMessages((prev) => {
       const copy = [...prev];
