@@ -11,6 +11,8 @@ import "./App.css";
 type Message = {
   id?: number;
   query: string;
+  displayQuery?: string;
+  attachedFileName?: string;
   answer: string;
   displayAnswer?: string;
   used: string;
@@ -184,15 +186,24 @@ function App() {
 
   const sendQuery = async () => {
     if (!query.trim()) return;
+    if (fileLoading) {
+      alert("Still reading the attached file — wait a moment and try again.");
+      return;
+    }
     const q = attachedContent
       ? `${query}\n\n[Attached file: ${attachedFile}]\n\`\`\`\n${attachedContent}\n\`\`\``
       : query;
+    const displayQ = query;
+    const attachedName = attachedFile || undefined;
     setQuery("");
     setAttachedFile(null);
     setAttachedContent(null);
     if (textRef.current) textRef.current.style.height = "auto";
 
-    setMessages((prev) => [...prev, { query: q, answer: "", displayAnswer: "", used: "pending", stage: STAGES[0] }]);
+    setMessages((prev) => [
+      ...prev,
+      { query: q, displayQuery: displayQ, attachedFileName: attachedName, answer: "", displayAnswer: "", used: "pending", stage: STAGES[0] },
+    ]);
     setIsStreaming(true);
     const stageTimer = runStageTicker(messages.length);
 
@@ -597,7 +608,12 @@ function App() {
           {messages.map((m, i) => (
             <div key={i} id={`msg-${m.id ?? i}`} className="msg-block">
               <div className="row-user">
-                <div className="bubble bubble-user">{m.query}</div>
+                <div className="bubble bubble-user">
+                  {m.attachedFileName && (
+                    <div className="msg-file-chip">{fileIcon(m.attachedFileName)} {m.attachedFileName}</div>
+                  )}
+                  {m.displayQuery ?? m.query}
+                </div>
               </div>
               <div className="row-bot">
                 {m.used === "pending" ? (
