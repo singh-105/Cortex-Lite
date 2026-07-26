@@ -896,3 +896,35 @@ a{ color:inherit; text-decoration:none; }
   font-size: 12px;
   margin-bottom: 6px;
 }
+
+.usage-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.usage-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.usage-bar-track {
+  width: 100%;
+  height: 6px;
+  background: var(--panel-2);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.usage-bar-fill {
+  height: 100%;
+  background: var(--cloud);
+  border-radius: 20px;
+  transition: width 0.3s ease;
+}
+
+.usage-warn { background: var(--tool); }
+.usage-critical { background: #ef4444; }

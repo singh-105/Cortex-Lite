@@ -90,6 +90,26 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
   const [reactions, setReactions] = useState<Record<number, "like" | "dislike" | null>>({});
+  const [usage, setUsage] = useState<{ used: number; limit: number; percent: number } | null>(null);
+
+  const fetchUsage = () => {
+    if (!authToken) return;
+    fetch(`${import.meta.env.VITE_API_URL}/usage`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then((res) => res.json())
+      .then(setUsage);
+  };
+  const [usage, setUsage] = useState<{ used: number; limit: number; percent: number } | null>(null);
+
+  const fetchUsage = () => {
+    if (!authToken) return;
+    fetch(`${import.meta.env.VITE_API_URL}/usage`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then((res) => res.json())
+      .then(setUsage);
+  };
 
   const chatRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -106,6 +126,7 @@ function App() {
     })
       .then((res) => res.json())
       .then((data) => setMessages(Array.isArray(data) ? data.reverse() : []));
+    fetchUsage();
   }, [authToken]);
 
   useEffect(() => {
@@ -229,6 +250,7 @@ function App() {
 
     const data = await res.json();
     clearInterval(stageTimer);
+    if (data.usage) setUsage(data.usage);
 
     setMessages((prev) => {
       const updated = [...prev];
@@ -599,6 +621,20 @@ function App() {
           <div className="legend-row"><span className="dot dot-local" /> Local — on-device, fast</div>
           <div className="legend-row"><span className="dot dot-cloud" /> Cloud — Groq API</div>
           <div className="legend-row"><span className="dot dot-tool" /> Tool — live weather/time</div>
+          {usage && (
+            <div className="usage-block">
+              <div className="usage-label">
+                <span>Cloud calls today</span>
+                <span>{usage.used}/{usage.limit}</span>
+              </div>
+              <div className="usage-bar-track">
+                <div
+                  className={`usage-bar-fill ${usage.percent >= 90 ? "usage-critical" : usage.percent >= 60 ? "usage-warn" : ""}`}
+                  style={{ width: `${usage.percent}%` }}
+                />
+              </div>
+            </div>
+          )}
           {userInfo && (
             <div className="user-row">
               <img src={userInfo.picture} className="user-avatar" />

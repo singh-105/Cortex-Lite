@@ -13,6 +13,8 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs.db")
 GREETINGS = {"hi", "hello", "hey", "thanks", "thank you", "bye", "ok", "okay", "yo", "sup"}
 HARD_SIGNALS = ["what is", "what are", "why", "how does", "how do", "explain", "compare", "difference between", "teach me"]
 
+DAILY_CLOUD_LIMIT = 20
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""CREATE TABLE IF NOT EXISTS users (
@@ -24,8 +26,28 @@ def init_db():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(logs)").fetchall()]
     if "user_id" not in cols:
         conn.execute("ALTER TABLE logs ADD COLUMN user_id TEXT")
+    if "created_at" not in cols:
+        conn.execute("ALTER TABLE logs ADD COLUMN created_at TEXT")
     conn.commit()
     conn.close()
+
+def get_today_cloud_count(user_id: str) -> int:
+    conn = sqlite3.connect(DB_PATH)
+    today = datetime.date.today().isoformat()
+    row = conn.execute(
+        "SELECT COUNT(*) FROM logs WHERE user_id = ? AND used = 'api' AND date(created_at) = ?",
+        (user_id, today),
+    ).fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+def get_usage(user_id: str) -> dict:
+    used = get_today_cloud_count(user_id)
+    return {
+        "used": used,
+        "limit": DAILY_CLOUD_LIMIT,
+        "percent": min(100, round((used / DAILY_CLOUD_LIMIT) * 100)),
+    }
 
 init_db()
 
@@ -170,7 +192,10 @@ def handle_via_api(query: str, user_id: str) -> str:
 
 def log_call(user_id: str, query: str, used: str, answer: str):
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("INSERT INTO logs (user_id, query, used, answer) VALUES (?, ?, ?, ?)", (user_id, query, used, answer))
+    conn.execute(
+        "INSERT INTO logs (user_id, query, used, answer, created_at) VALUES (?, ?, ?, ?, ?)",
+        (user_id, query, used, answer, datetime.datetime.utcnow().isoformat()),
+    )
     conn.commit()
     conn.close()
 
