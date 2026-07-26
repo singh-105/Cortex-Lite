@@ -67,6 +67,11 @@ const CodeBlock = memo(function CodeBlock({ lang, code }: { lang: string; code: 
 });
 
 function App() {
+  const [authToken, setAuthToken] = useState<string | null>(localStorage.getItem("cortex_token"));
+  const [userInfo, setUserInfo] = useState<any>(() => {
+    const stored = localStorage.getItem("cortex_user");
+    return stored ? JSON.parse(stored) : null;
+  });
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -90,10 +95,44 @@ function App() {
   const suggestionsList = ["Explain AI", "Today's weather", "Build a React app", "Summarize a PDF"];
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/history`)
+    if (!authToken) return;
+    fetch(`${import.meta.env.VITE_API_URL}/history`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
       .then((res) => res.json())
-      .then((data) => setMessages(data.reverse()));
-  }, []);
+      .then((data) => setMessages(Array.isArray(data) ? data.reverse() : []));
+  }, [authToken]);
+
+  useEffect(() => {
+    if (authToken || !(window as any).google) return;
+    (window as any).google.accounts.id.initialize({
+      client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+      callback: async (response: any) => {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/google`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: response.credential }),
+        });
+        const data = await res.json();
+        setAuthToken(data.token);
+        setUserInfo(data.user);
+        localStorage.setItem("cortex_token", data.token);
+        localStorage.setItem("cortex_user", JSON.stringify(data.user));
+      },
+    });
+    (window as any).google.accounts.id.renderButton(
+      document.getElementById("google-signin-btn"),
+      { theme: "outline", size: "large" }
+    );
+  }, [authToken]);
+
+  const logout = () => {
+    setAuthToken(null);
+    setUserInfo(null);
+    setMessages([]);
+    localStorage.removeItem("cortex_token");
+    localStorage.removeItem("cortex_user");
+  };
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
@@ -161,7 +200,10 @@ function App() {
     try {
       res = await fetch(`${import.meta.env.VITE_API_URL}/route-task`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
         body: JSON.stringify({ query: q }),
         signal: controller.signal,
       });
@@ -201,7 +243,10 @@ function App() {
     const stageTimer = runStageTicker(idx);
     const res = await fetch(`${import.meta.env.VITE_API_URL}/route-task`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
       body: JSON.stringify({ query: q }),
     });
     const data = await res.json();
@@ -230,7 +275,10 @@ function App() {
   };
 
   const deleteEntry = async (id: number) => {
-    await fetch(`${import.meta.env.VITE_API_URL}/history/${id}`, { method: "DELETE" });
+    await fetch(`${import.meta.env.VITE_API_URL}/history/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
     setMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
@@ -391,6 +439,19 @@ function App() {
     },
   };
 
+  if (!authToken) {
+    return (
+      <div className="login-screen">
+        <div className="login-box">
+          <Logo />
+          <div className="login-title">Cortex Lite</div>
+          <div className="login-sub">Sign in to continue</div>
+          <div id="google-signin-btn"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <button className="hamburger" onClick={() => setSidebarOpen((o) => !o)}>☰</button>
@@ -452,6 +513,13 @@ function App() {
           <div className="legend-row"><span className="dot dot-local" /> Local — on-device, fast</div>
           <div className="legend-row"><span className="dot dot-cloud" /> Cloud — Groq API</div>
           <div className="legend-row"><span className="dot dot-tool" /> Tool — live weather/time</div>
+          {userInfo && (
+            <div className="user-row">
+              <img src={userInfo.picture} className="user-avatar" />
+              <span className="user-name">{userInfo.name}</span>
+              <button className="logout-btn" onClick={logout}>Logout</button>
+            </div>
+          )}
         </div>
       </aside>
 
