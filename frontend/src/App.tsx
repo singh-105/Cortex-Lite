@@ -393,6 +393,23 @@ function App() {
       );
     }
 
+    if (answer.startsWith("STOCK_CARD|")) {
+      const [, ticker, price, change] = answer.split("|");
+      const isUp = parseFloat(change) >= 0;
+      return (
+        <div className="tool-card">
+          <div className="tool-card-icon">📈</div>
+          <div className="tool-card-body">
+            <div className="tool-card-title">{ticker}</div>
+            <div className="tool-card-value">${price}</div>
+            <div className="tool-card-sub">
+              <span style={{ color: isUp ? "#22c55e" : "#ef4444" }}>{isUp ? "▲" : "▼"} {Math.abs(parseFloat(change))}%</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     if (answer.startsWith("CRYPTO_CARD|")) {
       const [, coin, usd, inr, change] = answer.split("|");
       const isUp = parseFloat(change) >= 0;
