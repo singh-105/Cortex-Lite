@@ -53,7 +53,9 @@ def get_recent_history(user_id: str, limit=6):
     return history
 
 def classify_tool(query: str) -> str:
-    prompt = f"""Classify this query into exactly one category: WEATHER, CURRENCY, TIME, or NONE.
+    prompt = f"""Classify this query into exactly one category: WEATHER, CURRENCY, TIME, CALCULATOR, CRYPTO, or NONE.
+CALCULATOR = any arithmetic/math expression to compute (e.g. "what is 45*12", "calculate 200/7").
+CRYPTO = asking for the current price of a cryptocurrency (e.g. "price of bitcoin", "how much is ethereum").
 Use meaning, not exact spelling — handle typos and casual phrasing.
 Query: "{query}"
 Answer with one word only."""
@@ -61,11 +63,57 @@ Answer with one word only."""
     return response.choices[0].message.content.strip().upper()
 
 def is_tool_query(query: str) -> bool:
-    return classify_tool(query) in {"WEATHER", "CURRENCY", "TIME"}
+    return classify_tool(query) in {"WEATHER", "CURRENCY", "TIME", "CALCULATOR", "CRYPTO"}
+
+CRYPTO_IDS = {
+    "bitcoin": "bitcoin", "btc": "bitcoin",
+    "ethereum": "ethereum", "eth": "ethereum",
+    "solana": "solana", "sol": "solana",
+    "dogecoin": "dogecoin", "doge": "dogecoin",
+    "cardano": "cardano", "ada": "cardano",
+    "ripple": "ripple", "xrp": "ripple",
+}
+
+def extract_expression(query: str) -> str:
+    prompt = f"""Extract only the pure math expression from this query, nothing else.
+Example: "what is 45 times 12" -> "45*12"
+Example: "calculate 200 divided by 7" -> "200/7"
+Query: "{query}"
+Answer with only the expression, no words, no explanation."""
+    response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": prompt}])
+    return response.choices[0].message.content.strip()
+
+def safe_eval(expr: str):
+    allowed = set("0123456789+-*/(). ")
+    if not all(c in allowed for c in expr):
+        raise ValueError("unsafe expression")
+    return eval(expr, {"__builtins__": {}}, {})
+
+def extract_coin(query: str) -> str:
+    q = query.lower()
+    for name, coin_id in CRYPTO_IDS.items():
+        if name in q:
+            return coin_id
+    return "bitcoin"
 
 def handle_tool_query(query: str) -> str:
     kind = classify_tool(query)
     try:
+        if kind == "CALCULATOR":
+            expr = extract_expression(query)
+            result = safe_eval(expr)
+            return f"CALC_CARD|{expr}|{result}"
+        if kind == "CRYPTO":
+            coin_id = extract_coin(query)
+            resp = requests.get(
+                f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd,inr&include_24hr_change=true",
+                timeout=5,
+            ).json()
+            data = resp.get(coin_id, {})
+            usd = data.get("usd", "N/A")
+            inr = data.get("inr", "N/A")
+            change = data.get("usd_24h_change", 0)
+            return f"CRYPTO_CARD|{coin_id}|{usd}|{inr}|{change:.2f}"
         if kind == "CURRENCY":
             resp = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()
             rate = resp["rates"]["INR"]

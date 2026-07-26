@@ -368,6 +368,36 @@ function App() {
       );
     }
 
+    if (answer.startsWith("CALC_CARD|")) {
+      const [, expr, result] = answer.split("|");
+      return (
+        <div className="tool-card">
+          <div className="tool-card-icon">🧮</div>
+          <div className="tool-card-body">
+            <div className="tool-card-title">{expr}</div>
+            <div className="tool-card-value">{result}</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (answer.startsWith("CRYPTO_CARD|")) {
+      const [, coin, usd, inr, change] = answer.split("|");
+      const isUp = parseFloat(change) >= 0;
+      return (
+        <div className="tool-card">
+          <div className="tool-card-icon">₿</div>
+          <div className="tool-card-body">
+            <div className="tool-card-title">{coin.charAt(0).toUpperCase() + coin.slice(1)}</div>
+            <div className="tool-card-value">${usd}</div>
+            <div className="tool-card-sub">
+              ₹{inr} · <span style={{ color: isUp ? "#22c55e" : "#ef4444" }}>{isUp ? "▲" : "▼"} {Math.abs(parseFloat(change))}%</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return null;
   };
 
