@@ -100,16 +100,6 @@ function App() {
       .then((res) => res.json())
       .then(setUsage);
   };
-  const [usage, setUsage] = useState<{ used: number; limit: number; percent: number } | null>(null);
-
-  const fetchUsage = () => {
-    if (!authToken) return;
-    fetch(`${import.meta.env.VITE_API_URL}/usage`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then((res) => res.json())
-      .then(setUsage);
-  };
 
   const chatRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
