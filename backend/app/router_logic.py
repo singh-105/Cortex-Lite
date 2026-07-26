@@ -134,7 +134,7 @@ def handle_tool_query(query: str) -> str:
             now = datetime.datetime.now(ist).strftime("%I:%M %p, %d %b %Y")
             return f"Current local time: {now}"
         fmt = "%C|%t|%f|%h|%w|%p|%P"
-        resp = requests.get(f"https://wttr.in/Mumbai?format={fmt}", timeout=5)
+        resp = requests.get(f"https://wttr.in/Mumbai?format={fmt}&m", timeout=5)
         parts = resp.text.strip().split("|")
         if len(parts) == 7:
             cond, temp, feels, hum, wind, precip, pressure = parts
