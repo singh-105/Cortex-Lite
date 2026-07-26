@@ -673,7 +673,11 @@ function App() {
             >
               🎤
             </button>
-            <button className="send-btn" onClick={isStreaming ? stopResponse : sendQuery}>
+            <button
+              className="send-btn"
+              onClick={isStreaming ? stopResponse : sendQuery}
+              disabled={fileLoading}
+            >
               {isStreaming ? "■" : <SendIcon />}
             </button>
           </div>
