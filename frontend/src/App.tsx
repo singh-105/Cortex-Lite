@@ -233,7 +233,7 @@ function App() {
     setMessages((prev) => {
       const updated = [...prev];
       const idx = updated.length - 1;
-      updated[idx] = { query: q, answer: data.answer, displayAnswer: "", used: data.used };
+      updated[idx] = { ...updated[idx], query: q, answer: data.answer, displayAnswer: "", used: data.used };
       return updated;
     });
 
@@ -268,7 +268,7 @@ function App() {
 
     setMessages((prev) => {
       const copy = [...prev];
-      copy[idx] = { query: q, answer: data.answer, displayAnswer: "", used: data.used };
+      copy[idx] = { ...copy[idx], query: q, answer: data.answer, displayAnswer: "", used: data.used };
       return copy;
     });
     setTimeout(() => streamAnswer(idx, data.answer), 0);
