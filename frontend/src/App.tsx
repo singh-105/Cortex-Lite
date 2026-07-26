@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, memo } from "react";
+import * as pdfjsLib from "pdfjs-dist";
+import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import mammoth from "mammoth";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -385,22 +388,58 @@ function App() {
     setIsRecording(false);
   };
 
-  const readFile = (file: File) => {
-    const textTypes = ["text/", "application/json"];
-    const isText = textTypes.some((t) => file.type.startsWith(t)) || /\.(txt|md|csv|json|log)$/i.test(file.name);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
-    if (!isText) {
-      alert("Only text-based files (.txt, .md, .csv, .json, .log) are supported right now.");
+  const [fileLoading, setFileLoading] = useState(false);
+
+  const extractPdf = async (file: File) => {
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    let text = "";
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map((item: any) => item.str).join(" ") + "\n";
+    }
+    return text;
+  };
+
+  const extractDocx = async (file: File) => {
+    const buffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+    return result.value;
+  };
+
+  const readFile = async (file: File) => {
+    const isText = file.type.startsWith("text/") || /\.(txt|md|csv|json|log)$/i.test(file.name);
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    const isDocx = /\.docx$/i.test(file.name);
+
+    if (!isText && !isPdf && !isDocx) {
+      alert("Supported files: .txt, .md, .csv, .json, .log, .pdf, .docx");
       return;
     }
 
     setAttachedFile(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = String(e.target?.result || "");
-      setAttachedContent(text.slice(0, 6000));
-    };
-    reader.readAsText(file);
+    setFileLoading(true);
+
+    try {
+      if (isPdf) {
+        const text = await extractPdf(file);
+        setAttachedContent(text.slice(0, 8000));
+      } else if (isDocx) {
+        const text = await extractDocx(file);
+        setAttachedContent(text.slice(0, 8000));
+      } else {
+        const text = await file.text();
+        setAttachedContent(text.slice(0, 8000));
+      }
+    } catch {
+      alert("Couldn't read that file — it may be corrupted or password-protected.");
+      setAttachedFile(null);
+    } finally {
+      setFileLoading(false);
+    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -412,6 +451,12 @@ function App() {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (file) readFile(file);
+  };
+
+  const fileIcon = (name: string) => {
+    if (/\.pdf$/i.test(name)) return "📕";
+    if (/\.docx$/i.test(name)) return "📘";
+    return "📎";
   };
 
   const markdownComponents = {
@@ -600,14 +645,20 @@ function App() {
         <div className="input-area" onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
           {attachedFile && (
             <div className="attached-chip">
-              📎 {attachedFile}
-              <button onClick={() => setAttachedFile(null)}>✕</button>
+              {fileLoading ? "⏳" : fileIcon(attachedFile)} {attachedFile}
+              {fileLoading && <span className="chip-loading">reading...</span>}
+              <button onClick={() => { setAttachedFile(null); setAttachedContent(null); }}>✕</button>
             </div>
           )}
           <div className="input-row">
             <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Attach file">📎</button>
-            <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileSelect} />
-            <textarea
+<input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              accept=".txt,.md,.csv,.json,.log,.pdf,.docx"
+              onChange={handleFileSelect}
+            />            <textarea
               ref={textRef}
               value={query}
               onChange={handleInput}
