@@ -21,6 +21,9 @@ def init_db():
     conn.execute("""CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY, user_id TEXT, query TEXT, used TEXT, answer TEXT
     )""")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(logs)").fetchall()]
+    if "user_id" not in cols:
+        conn.execute("ALTER TABLE logs ADD COLUMN user_id TEXT")
     conn.commit()
     conn.close()
 
