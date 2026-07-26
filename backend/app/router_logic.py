@@ -10,16 +10,37 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs.db")
 
-GREETINGS = {"hi", "hello", "heloo", "hey", "thanks", "thank you", "bye", "ok", "okay", "yo", "sup"}
-PERSONAL_PATTERNS = ["my name is", "i am ", "i live in", "call me", "i'm "]
+GREETINGS = {"hi", "hello", "hey", "thanks", "thank you", "bye", "ok", "okay", "yo", "sup"}
 HARD_SIGNALS = ["what is", "what are", "why", "how does", "how do", "explain", "compare", "difference between", "teach me"]
-TOOL_SIGNALS = ["weather", "waether", "wather", "temperature", "climate", "current time", "what time", "time now"]
-CURRENCY_SIGNALS = ["dollar", "rupee", "rupp", "usd", "inr", "exchange rate", "currency"]
 
-def get_recent_history(limit=6):
+def init_db():
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)")
-    rows = conn.execute("SELECT query, answer FROM logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    conn.execute("""CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY, email TEXT, name TEXT, picture TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY, user_id TEXT, query TEXT, used TEXT, answer TEXT
+    )""")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def upsert_user(user_id: str, email: str, name: str, picture: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT INTO users (id, email, name, picture) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET email=excluded.email, name=excluded.name, picture=excluded.picture",
+        (user_id, email, name, picture),
+    )
+    conn.commit()
+    conn.close()
+
+def get_recent_history(user_id: str, limit=6):
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT query, answer FROM logs WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit)
+    ).fetchall()
     conn.close()
     rows.reverse()
     history = []
@@ -28,16 +49,12 @@ def get_recent_history(limit=6):
         history.append({"role": "assistant", "content": a})
     return history
 
-CODE_EXCLUDE = ["complexity", "algorithm", "big o", "runtime"]
 def classify_tool(query: str) -> str:
     prompt = f"""Classify this query into exactly one category: WEATHER, CURRENCY, TIME, or NONE.
 Use meaning, not exact spelling — handle typos and casual phrasing.
 Query: "{query}"
 Answer with one word only."""
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}],
-    )
+    response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": prompt}])
     return response.choices[0].message.content.strip().upper()
 
 def is_tool_query(query: str) -> bool:
@@ -51,21 +68,15 @@ def handle_tool_query(query: str) -> str:
             rate = resp["rates"]["INR"]
             return f"Live rate — 1 USD = {rate:.2f} INR (updated: {resp['time_last_update_utc']})"
         if kind == "TIME":
-            now = datetime.datetime.now().strftime("%I:%M %p, %d %b %Y")
+            ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            now = datetime.datetime.now(ist).strftime("%I:%M %p, %d %b %Y")
             return f"Current local time: {now}"
-        resp = requests.get("https://wttr.in/Mumbai?format=3", timeout=5)
-        return f"Live weather — {resp.text.strip()}"
-    except Exception:
-        return "Couldn't fetch live data right now, try again in a moment."
-
-
-def handle_tool_query(query: str) -> str:
-    q = query.lower()
-    try:
-        if "time" in q and "weather" not in q:
-            now = datetime.datetime.now().strftime("%I:%M %p, %d %b %Y")
-            return f"Current local time: {now}"
-        resp = requests.get("https://wttr.in/Mumbai?format=3", timeout=5)
+        fmt = "%C|%t|%f|%h|%w|%p|%P"
+        resp = requests.get(f"https://wttr.in/Mumbai?format={fmt}", timeout=5)
+        parts = resp.text.strip().split("|")
+        if len(parts) == 7:
+            cond, temp, feels, hum, wind, precip, pressure = parts
+            return f"WEATHER_CARD|Mumbai|{cond.strip()}|{temp.strip()}|{feels.strip()}|{hum.strip()}|{wind.strip()}|{pressure.strip()}"
         return f"Live weather — {resp.text.strip()}"
     except Exception:
         return "Couldn't fetch live data right now, try again in a moment."
@@ -81,39 +92,36 @@ HARD: anything needing real explanation, teaching, technical/domain knowledge, r
 
 Query: "{query}"
 Answer with exactly one word: EASY or HARD."""
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}],
-    )
+    response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": prompt}])
     verdict = response.choices[0].message.content.strip().upper()
     return "HARD" in verdict
 
-def handle_locally(query: str) -> str:
-    messages = get_recent_history() + [{"role": "user", "content": query}]
+def handle_locally(query: str, user_id: str) -> str:
+    messages = get_recent_history(user_id) + [{"role": "user", "content": query}]
     response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=messages)
     return response.choices[0].message.content
 
-def handle_via_api(query: str) -> str:
-    messages = get_recent_history() + [{"role": "user", "content": query}]
-    response = client.chat.completions.create(model="llama-3.1-8b-instant", messages=messages)
+def handle_via_api(query: str, user_id: str) -> str:
+    messages = get_recent_history(user_id) + [{"role": "user", "content": query}]
+    response = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=messages)
     return response.choices[0].message.content
 
-def log_call(query: str, used: str, answer: str):
+def log_call(user_id: str, query: str, used: str, answer: str):
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)")
-    conn.execute("INSERT INTO logs (query, used, answer) VALUES (?, ?, ?)", (query, used, answer))
+    conn.execute("INSERT INTO logs (user_id, query, used, answer) VALUES (?, ?, ?, ?)", (user_id, query, used, answer))
     conn.commit()
     conn.close()
 
-def delete_entry(entry_id: int):
+def get_history(user_id: str):
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("DELETE FROM logs WHERE id = ?", (entry_id,))
-    conn.commit()
-    conn.close()
-
-def get_history():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, query TEXT, used TEXT, answer TEXT)")
-    rows = conn.execute("SELECT id, query, used, answer FROM logs ORDER BY id DESC LIMIT 20").fetchall()
+    rows = conn.execute(
+        "SELECT id, query, used, answer FROM logs WHERE user_id = ? ORDER BY id DESC LIMIT 30", (user_id,)
+    ).fetchall()
     conn.close()
     return [{"id": r[0], "query": r[1], "used": r[2], "answer": r[3]} for r in rows]
+
+def delete_entry(entry_id: int, user_id: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM logs WHERE id = ? AND user_id = ?", (entry_id, user_id))
+    conn.commit()
+    conn.close()
