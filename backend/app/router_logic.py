@@ -171,13 +171,18 @@ def tool_get_stock(ticker: str) -> str:
 
 def tool_get_news(category: str = "general") -> str:
     try:
-        resp = requests.get(f"https://saurav.tech/NewsAPI/top-headlines/category/{category}/in.json", timeout=6).json()
-        articles = resp.get("articles", [])[:5]
+        api_key = os.getenv("GNEWS_API_KEY")
+        resp = requests.get(
+            "https://gnews.io/api/v4/top-headlines",
+            params={"category": category, "lang": "en", "country": "in", "max": 5, "apikey": api_key},
+            timeout=6,
+        ).json()
+        articles = resp.get("articles", [])
         if not articles:
             return "No news articles found right now."
         lines = [f"**Top {category} headlines:**\n"]
         for a in articles:
-            lines.append(f"- {a['title']}")
+            lines.append(f"- {a['title']} ({a['source']['name']})")
         return "\n".join(lines)
     except Exception:
         return "Couldn't fetch news right now."
@@ -223,7 +228,7 @@ TOOL_SCHEMAS = [
     {"type": "function", "function": {
         "name": "get_news", "description": "Get today's top news headlines in India by category.",
         "parameters": {"type": "object", "properties": {
-            "category": {"type": "string", "description": "one of: general, business, technology, sports, entertainment, health, science"}
+            "category": {"type": "string", "description": "one of: general, world, business, technology, sports, entertainment, health, science"}
         }, "required": []},
     }},
 ]
